@@ -19,21 +19,23 @@ end
 
 function myeq_OpeningFcn(hObject, eventdata, handles, varargin)
 
-handles.fs = 44100;
+handles.fs = 44100;%샘플링rate 초기화 audioread를 하면 바뀐다
 handles.order = 8;
 handles.orders = 2*ones(1,10);
 handles.frequencies = [31,63,127,255,511,1023,2047,4095,8191, ...
-                    16383];
+                    16383]; %조정할 주파수 영역대 10가지
 handles.qualityfactors = 1.5*ones(1,10);
-handles.gains = zeros(1,10); % by default
+handles.gains = zeros(1,10); %입출력 전압 크기비를 전부 0으로 초기화
 handles.bandwidth = handles.frequencies ./ handles.qualityfactors;
 handles.mPEQ = dsp.BiquadFilter(...
     'SOSMatrixSource','Input port',...
     'ScaleValuesInputPort',false);
+%IIR filter 함수를 handle.mPEQ로 씀
 [handles.b,handles.a] = designParamEQ(handles.orders, ...
                                       handles.gains,handles.frequencies,handles.bandwidth);
-handles.orisos = [handles.b',[ones(sum(handles.orders)/2,1),handles.a']];
-guidata(hObject, handles);
+% [B,A] = designParamEQ(N,gain,centerFreq,bandwidth) 입출력 전압의 크기의 비(gain) 중심 주파수 및 대역폭을 갖는 
+% Nth- order 파라메트릭 이퀄라이저를 설계, 주파수 magnitude 조절 슬라이드에서 수정될 값들이다.
+guidata(hObject, handles); %guide에서 guidata사용 하여 handle 구조체에 myeq데이터 저장하기
 
 handles.output = hObject;
 
@@ -280,24 +282,22 @@ function openbutton_Callback(hObject, eventdata, handles)
 %     release(handles.deviceWriter)
 % end
 [filename,pathname]=uigetfile(...
-    {'*.wav','WAV Files(*.wav)';...
-     '*.*','All Files(*.*)'}, ...
-    'Select a *.wav file');
+    {'*.*','All Files(*.*)'}, ...
+    'Select a *. file');%불러온 파일을 filename에 저장
 if isequal(filename,0)||isequal(pathname,0)
     return;
 else
-    set(handles.nowplay,'String',filename);
+    set(handles.nowplay,'String',filename);%nowplay를 현재 선택된 파일 이름으로 바꿔줌.
 end
-[wave,fs] = audioread(filename);
+[wave,fs] = audioread(filename); 
+%[wave,fs] = audioread(filename)은 filename이라는 파일에서 데이터를 읽고 
+%샘플링된 데이터 wave와 이 데이터의 샘플 레이트 Fs를 반환.
 handles.frequencies = handles.frequencies * (2*pi/fs);
 handles.bandwidth = handles.bandwidth * (2*pi/fs);
 
 handles.filename = filename;
-handles.fs = fs;
+handles.fs = fs;%audioread로 부터 반환된 샘플링rate를 저장
 guidata(hObject, handles);
-
-
-
 
 % --- Executes on button press in playbutton1.
 function playbutton1_Callback(hObject, eventdata, handles)
@@ -327,29 +327,36 @@ frameLength = 1024;
 handles.fileReader = dsp.AudioFileReader(...
     'Filename',handles.filename,...
     'SamplesPerFrame',frameLength);
+% 오디오 파일을 스트리밍 해준다
 handles.deviceWriter = audioDeviceWriter(...
     'SampleRate',handles.fileReader.SampleRate);
+% 오디오 파일을 사운드 카드 버퍼에 올려주고 재생시킨다
 setup(handles.deviceWriter,ones(frameLength,2));
 guidata(hObject, handles);
 while ~isDone(handles.fileReader)&&~flag
     handles.originalSignal = handles.fileReader();
-    switch get(handles.eqenable,'Value')
+    switch get(handles.eqenable,'Value') %EQ체크박스에 체크가 되면 실행
       case 1
         handles.equalizedSignal = handles.mPEQ(handles.originalSignal,handles.b,handles.a);
+        %주파수 magnitude 조정 슬라이드에서 변경된 값들을 통해 변경된 magnitude를 equilizedSignal로 저장
         handles.deviceWriter(handles.equalizedSignal);
-      case 0
+        %변경된 신호를 사운드 카드 버퍼에 쓰고 재생
+        
+      case 0 %EQ체크박스의 체크가 없으면 실행
         handles.deviceWriter(handles.originalSignal);
+        %본래 신호대로 출력해준다
     end
     pause(2e-2);
 end
 flag = 0;
-% releasing
+% 버퍼에 쓸 신호가 없다면 읽기와 출력을 멈춘다
 if isfield(handles,'fileReader')&&isDone(handles.fileReader)
     release(handles.fileReader)
 end
 if isfield(handles,'deviceWriter')&&isDone(handles.fileReader)
     release(handles.deviceWriter)
 end
+
 
 % --- Executes on button press in pausebutton1.
 function pausebutton1_Callback(hObject, eventdata, handles)
@@ -389,78 +396,6 @@ global flag;
 flag = 1;
 close();
 
-% --- Executes on button press in playbutton2.
-function playbutton2_Callback(hObject, eventdata, handles)
-% hObject    handle to playbutton2 (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-global flag;
-nowstate = get(handles.pausebutton2,'String');
-if  strcmp(nowstate,'Continue')
-    set(handles.pausebutton2,'String','Pause');
-end
-if isfield(handles,'fileReader')
-    release(handles.fileReader)
-end
-if isfield(handles,'mPEQ')
-    release(handles.mPEQ)
-end
-if isfield(handles,'deviceWriter')
-    release(handles.deviceWriter)
-end
-
-frameLength = 512;
-handles.fileReader = dsp.AudioFileReader(...
-    'Filename',handles.genefilename,...
-    'SamplesPerFrame',frameLength);
-handles.deviceWriter = audioDeviceWriter(...
-    'SampleRate',handles.fileReader.SampleRate);
-setup(handles.deviceWriter,ones(frameLength,2));
-guidata(hObject, handles);
-while ~isDone(handles.fileReader)&&~flag
-    handles.originalSignal = handles.fileReader();
-    handles.deviceWriter(handles.originalSignal);
-    pause(1e-2);
-end
-flag = 0;
-% releasing
-if isfield(handles,'fileReader')&&isDone(handles.fileReader)
-    release(handles.fileReader)
-end
-if isfield(handles,'deviceWriter')&&isDone(handles.fileReader)
-    release(handles.deviceWriter)
-end
-
-% --- Executes on button press in pausebutton2.
-function pausebutton2_Callback(hObject, eventdata, handles)
-% hObject    handle to pausebutton2 (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-nowstate = get(hObject,'String');
-if  strcmp(nowstate,'Continue')
-    set(hObject,'String','Pause');
-    uiresume;
-elseif strcmp(nowstate,'Pause')
-    set(hObject,'String','Continue');
-    uiwait;
-end
-
-% --- Executes on button press in stopbutton2.
-function stopbutton2_Callback(hObject, eventdata, handles)
-% hObject    handle to stopbutton2 (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-global flag;
-flag = 1;
-nowstate = get(handles.pausebutton2,'String');
-if  strcmp(nowstate,'Continue')
-    set(handles.pausebutton2,'String','Pause');
-    flag = 0;
-end
-guidata(hObject, handles);
-
-
-
 % --- Executes during object creation, after setting all properties.
 function slideruseless_CreateFcn(hObject, eventdata, handles)
 % hObject    handle to slideruseless (see GCBO)
@@ -493,8 +428,6 @@ function stopbutton1_CreateFcn(hObject, eventdata, handles)
 % handles    empty - handles not created until after all CreateFcns called
 global flag;
 flag = 0;
-
-
 
 function figure1_CreateFcn(hObject, eventdata, handles)
 
